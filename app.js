@@ -248,9 +248,14 @@
   // ---------- Juego diario de siluetas (Región / Comuna) ----------
   const MAX_TRIES = 6;
 
+  // Los trazados vienen en enteros (1/K de unidad); este grupo los lleva a unidades del mapa.
+  const geoGroup = (attrs = {}) => sv("g", { ...attrs, transform: `${attrs.transform ? `${attrs.transform} ` : ""}scale(${1 / D.k})` });
+
   function silhouetteSvg(item) {
     const svg = sv("svg", { viewBox: viewBoxOf(item.bb).join(" "), preserveAspectRatio: "xMidYMid meet" });
-    svg.append(sv("path", { d: item.d }));
+    const g = geoGroup();
+    g.append(sv("path", { d: item.d }));
+    svg.append(g);
     return svg;
   }
 
@@ -282,12 +287,17 @@
         el("div", {}, `${ok ? 100 : proximity(km)}%`));
     }
 
-    function render(newIdx = -1) {
-      const root = cfg.root;
-      root.replaceChildren();
+    function head(root) {
       root.append(el("div", { class: "game-head" },
         el("h2", {}, cfg.title),
         el("span", { class: "muted" }, cfg.practice ? "Práctica" : `#${NUM}`)));
+    }
+
+    function render(newIdx = -1) {
+      const root = cfg.root;
+      root.replaceChildren();
+      if (done()) return renderDone(root);
+      head(root);
       const sil = el("div", { class: "silhouette" });
       sil.append(silhouetteSvg(target));
       root.append(sil);
@@ -296,45 +306,81 @@
       for (let i = 0; i < MAX_TRIES; i++) rows.push(guessRow(state.guesses[i], i === newIdx));
       root.append(el("div", { class: "guesses" }, rows));
 
-      if (!done()) {
-        const input = el("input", { type: "text", placeholder: cfg.placeholder, autocomplete: "off", spellcheck: "false" });
-        const wrap = el("div", { class: "ac" }, input);
-        const ac = autocomplete(input,
-          () => cfg.items.filter((x) => !state.guesses.includes(x.c)).map((x) => ({
-            label: cfg.itemLabel(x), sub: cfg.itemSub(x), keys: cfg.keys(x), value: x.c,
-          })),
-          (it) => guess(it.value));
-        root.append(el("div", { class: "row" }, wrap, el("button", { class: "btn", onclick: () => ac.submit() }, "Adivinar")));
-        if (newIdx >= 0 || cfg.focus) input.focus();
-        return;
-      }
-      renderResult(root);
+      const input = el("input", { type: "text", placeholder: cfg.placeholder, autocomplete: "off", spellcheck: "false" });
+      const wrap = el("div", { class: "ac" }, input);
+      const ac = autocomplete(input,
+        () => cfg.items.filter((x) => !state.guesses.includes(x.c)).map((x) => ({
+          label: cfg.itemLabel(x), sub: cfg.itemSub(x), keys: cfg.keys(x), value: x.c,
+        })),
+        (it) => guess(it.value));
+      root.append(el("div", { class: "row" }, wrap, el("button", { class: "btn", onclick: () => ac.submit() }, "Adivinar")));
+      if (newIdx >= 0 || cfg.focus) input.focus();
     }
 
     function guess(code) {
       if (state.guesses.includes(code) || done()) return;
       state.guesses.push(code);
+      if (done()) state.view = 0;
       save();
       if (done() && !cfg.practice) recordResult(cfg.mode, won(), state.guesses.length);
       render(state.guesses.length - 1);
       if (done()) toast(won() ? "¡Correcto! 🇨🇱" : `Era ${cfg.itemLabel(target)}`);
     }
 
-    function renderResult(root) {
-      const res = el("div", { class: "result" },
-        el("h3", {}, won() ? "¡Lo lograste!" : "La respuesta era"),
-        el("div", { class: "answer" }, cfg.itemLabel(target)),
-        el("div", { class: "muted" }, cfg.itemSub(target)));
-      const mm = el("div", { class: "minimap" });
-      mm.append(cfg.minimap(target, state.guesses));
-      res.append(mm);
-      root.append(res);
+    // Después de adivinar se muestra una pantalla a la vez:
+    // 0 = resultado, 1..n = preguntas bonus, n + 1 = resumen.
+    const LAST = bonus.length + 1;
+    const unlocked = (v) => v <= 1 || state.bonus[v - 2] != null;
+    function go(v) {
+      state.view = v;
+      save();
+      render();
+    }
 
-      // Rondas bonus: se muestran de a una.
-      for (let i = 0; i < bonus.length; i++) {
+    function stepper() {
+      const dots = el("div", { class: "stepper" });
+      for (let v = 0; v <= LAST; v++) {
+        const label = v === 0 ? "Resultado" : v === LAST ? "Resumen" : `Bonus ${v}`;
+        let cls = "dot";
+        if (v === state.view) cls += " cur";
+        if (v >= 1 && v < LAST && state.bonus[v - 1] != null) cls += state.bonus[v - 1] === bonus[v - 1].answer ? " ok" : " bad";
+        dots.append(el("button", { class: cls, title: label, "aria-label": label, disabled: !unlocked(v), onclick: () => go(v) }));
+      }
+      return dots;
+    }
+
+    function nextBtn(v, text) {
+      return el("button", { class: "btn btn-wide", onclick: () => go(v) }, text);
+    }
+
+    function renderDone(root) {
+      const v = Math.min(state.view ?? 0, LAST);
+      head(root);
+      root.append(stepper());
+      const card = el("div", { class: "step-card" });
+      root.append(card);
+
+      if (v === 0) {
+        card.append(
+          el("h3", {}, won() ? `¡Lo lograste en ${state.guesses.length}/${MAX_TRIES}!` : "La respuesta era"),
+          el("div", { class: "answer" }, cfg.itemLabel(target)),
+          el("div", { class: "muted" }, cfg.itemSub(target)));
+        const mm = el("div", { class: "minimap" });
+        mm.append(cfg.minimap(target, state.guesses));
+        card.append(mm);
+        card.append(nextBtn(1, "Preguntas bonus ⭐"));
+        return;
+      }
+
+      if (v < LAST) {
+        const i = v - 1;
         const b = bonus[i];
         const picked = state.bonus[i];
-        const box = el("div", { class: "bonus" }, el("h4", {}, `⭐ Bonus ${i + 1}/${bonus.length}: ${b.q}`));
+        const sil = el("div", { class: "silhouette small" });
+        sil.append(silhouetteSvg(target));
+        card.append(sil,
+          el("div", { class: "bonus-label" }, `⭐ Bonus ${v} de ${bonus.length} · ${cfg.itemLabel(target)}`),
+          el("h3", { class: "bonus-q" }, b.q));
         const opts = el("div", { class: "opts" });
         b.options.forEach((o, j) => {
           let cls = "opt";
@@ -347,18 +393,29 @@
             onclick: () => { state.bonus[i] = j; save(); render(); },
           }, o));
         });
-        box.append(opts);
-        if (picked != null && b.note) box.append(el("p", { class: "note muted" }, b.note));
-        root.append(box);
-        if (picked == null) break;
+        card.append(opts);
+        if (picked != null) {
+          card.append(el("p", { class: `verdict ${picked === b.answer ? "ok" : "bad"}` }, picked === b.answer ? "¡Correcto!" : "Incorrecto"));
+          if (b.note) card.append(el("p", { class: "note muted" }, b.note));
+          card.append(nextBtn(v + 1, v + 1 === LAST ? "Ver resumen" : "Siguiente pregunta →"));
+        }
+        return;
       }
 
+      const stars = bonus.filter((b, i) => state.bonus[i] === b.answer).length;
+      card.append(
+        el("h3", {}, won() ? `${cfg.itemLabel(target)} en ${state.guesses.length}/${MAX_TRIES}` : `Era ${cfg.itemLabel(target)}`),
+        el("div", { class: "stars" }, "⭐".repeat(stars) + "☆".repeat(bonus.length - stars)),
+        el("div", { class: "muted" }, `${stars} de ${bonus.length} preguntas bonus`));
+      const rows = state.guesses.map((code) => guessRow(code));
+      card.append(el("div", { class: "guesses compact" }, rows));
       const actions = el("div", { class: "actions" });
       if (!cfg.practice) actions.append(el("button", { class: "btn", onclick: () => share(shareText()) }, "Compartir"));
       actions.append(el("button", { class: "btn btn-red", onclick: cfg.onPractice }, cfg.practice ? "Otra más" : "Jugar práctica"));
       if (cfg.practice) actions.append(el("button", { class: "btn btn-ghost", onclick: cfg.onDaily }, "Volver al diario"));
       if (cfg.extraAction) actions.append(cfg.extraAction(target));
-      root.append(actions);
+      card.append(actions);
+      if (!cfg.practice) card.append(el("p", { class: "muted small-note" }, nextCountdown()));
     }
 
     function shareText() {
@@ -383,23 +440,27 @@
   // ---------- Minimapas ----------
   function regionMinimap(target, guesses) {
     const svg = sv("svg", { viewBox: viewBoxOf(target.bb, 0.6, 5).join(" "), preserveAspectRatio: "xMidYMid meet" });
+    const g = geoGroup();
     for (const r of REG) {
       const cls = r.c === target.c ? "target" : guesses.includes(r.c) ? "guessed" : "";
-      svg.append(sv("path", { d: r.d, class: cls }));
+      g.append(sv("path", { d: r.d, class: cls }));
     }
+    svg.append(g);
     return svg;
   }
   function comunaMinimap(target, guesses) {
     const [x0, y0, x1, y1] = target.bb;
     const size = Math.max(x1 - x0, y1 - y0);
     const svg = sv("svg", { viewBox: viewBoxOf(target.bb, 1.2, Math.max(0.8, size * 3)).join(" "), preserveAspectRatio: "xMidYMid meet" });
+    const g = geoGroup();
     for (const c of COM) {
       if (!c.d || (c.isla && c.c !== target.c)) continue;
       const cls = c.c === target.c ? "target" : guesses.includes(c.c) ? "guessed" : "";
-      svg.append(sv("path", { d: c.d, class: cls }));
+      g.append(sv("path", { d: c.d, class: cls }));
     }
     const reg = regByCode.get(target.r);
-    svg.append(sv("path", { d: reg.d, style: "fill:none;stroke:var(--map-region);stroke-width:1.5" }));
+    if (!target.isla) g.append(sv("path", { d: reg.d, class: "outline" }));
+    svg.append(g);
     return svg;
   }
 
@@ -669,8 +730,7 @@
     const svg = $("#inf-map");
     const defs = sv("defs");
     svg.append(defs);
-    const gMain = sv("g");
-    gMain.append(sv("path", { d: D.sinDemarcar.d, class: "nodem" }));
+    const gMain = geoGroup();
     for (const c of COM) {
       if (c.isla) continue;
       const p = sv("path", { d: c.d, class: "com" });
@@ -700,7 +760,7 @@
         defs.append(clip);
         const cx = x + w / 2, cy = y + h / 2 + 0.2;
         const inner = sv("g", { "clip-path": `url(#clip-${ins.id})` });
-        const tr = sv("g", { transform: `translate(${cx} ${cy}) scale(${ins.scale}) translate(${-ins.center[0]} ${-ins.center[1]})` });
+        const tr = geoGroup({ transform: `translate(${cx} ${cy}) scale(${ins.scale}) translate(${-ins.center[0]} ${-ins.center[1]})` });
         const p = sv("path", { d: c.d, class: "com" });
         p.dataset.c = c.c;
         inf.nodes.set(c.c, p);
@@ -959,6 +1019,22 @@
     history.replaceState(null, "", `#${name}`);
   }
   document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => selectTab(t.dataset.tab)));
+
+  // Tema claro / oscuro: por defecto sigue al sistema; el botón lo fija.
+  const darkQuery = matchMedia("(prefers-color-scheme: dark)");
+  const isDark = () => (document.documentElement.dataset.theme || (darkQuery.matches ? "dark" : "light")) === "dark";
+  const themeIcon = () => {
+    $("#btn-theme").textContent = isDark() ? "☀️" : "🌙";
+    $("#btn-theme").title = isDark() ? "Modo claro" : "Modo oscuro";
+  };
+  $("#btn-theme").onclick = () => {
+    const t = isDark() ? "light" : "dark";
+    document.documentElement.dataset.theme = t;
+    try { localStorage.setItem("chiledle:tema", t); } catch { /* sin almacenamiento */ }
+    themeIcon();
+  };
+  darkQuery.addEventListener("change", themeIcon);
+  themeIcon();
 
   $("#btn-help").onclick = () => $("#dlg-help").showModal();
   $("#btn-stats").onclick = showStats;

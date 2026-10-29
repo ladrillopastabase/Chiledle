@@ -6,13 +6,20 @@
   <title>Chiledle</title>
   <meta name="description" content="Adivina la región y la comuna del día, ordena ciudades por habitantes y nombra todas las comunas de Chile.">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='50' fill='%23fff'/><rect y='50' width='100' height='50' fill='%23d52b1e'/><rect width='40' height='50' fill='%230039a6'/><text x='20' y='34' font-size='26' text-anchor='middle' fill='%23fff'>★</text></svg>">
+  <script>
+    // Aplica el tema guardado antes de pintar, para evitar parpadeo.
+    try { const t = localStorage.getItem("chiledle:tema"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header class="top">
     <button class="icon-btn" id="btn-help" aria-label="Cómo jugar">?</button>
     <h1><span class="t-blue">CHILE</span><span class="t-red">DLE</span></h1>
-    <button class="icon-btn" id="btn-stats" aria-label="Estadísticas">📊</button>
+    <div class="top-right">
+      <button class="icon-btn" id="btn-theme" aria-label="Cambiar a modo claro u oscuro">🌙</button>
+      <button class="icon-btn" id="btn-stats" aria-label="Estadísticas">📊</button>
+    </div>
   </header>
 
   <nav class="tabs" role="tablist">
@@ -68,7 +75,7 @@
     <h2>Cómo jugar</h2>
     <p><b>Región</b> y <b>Comuna</b>: adivina la silueta del día en 6 intentos. Cada intento muestra la distancia, la dirección y qué tan cerca estás.</p>
     <div class="help-row"><span>Valdivia</span><span>812 km</span><span>⬇️</span><span>81%</span></div>
-    <p>Después vienen rondas bonus: capital regional, comuna más poblada, región, ciudad principal y habitantes.</p>
+    <p>Después vienen preguntas bonus, una por pantalla: capital regional, comuna más poblada, región, ciudad principal y habitantes.</p>
     <p><b>Ordenar</b>: ordena 6 ciudades de mayor a menor población. Tienes 3 intentos; las posiciones correctas quedan fijas.</p>
     <p><b>∞ Comunas</b>: escribe todas las comunas de Chile que recuerdes y mira cómo se iluminan en el mapa. Puedes filtrar por región.</p>
     <p class="muted">Un nuevo desafío cada día (hora de Chile). Población: Censo 2017 (INE).</p>
