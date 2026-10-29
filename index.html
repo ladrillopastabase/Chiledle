@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chiledle</title>
+  <meta name="description" content="Adivina la región y la comuna del día, ordena ciudades por habitantes y nombra todas las comunas de Chile.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='50' fill='%23fff'/><rect y='50' width='100' height='50' fill='%23d52b1e'/><rect width='40' height='50' fill='%230039a6'/><text x='20' y='34' font-size='26' text-anchor='middle' fill='%23fff'>★</text></svg>">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <button class="icon-btn" id="btn-help" aria-label="Cómo jugar">?</button>
+    <h1><span class="t-blue">CHILE</span><span class="t-red">DLE</span></h1>
+    <button class="icon-btn" id="btn-stats" aria-label="Estadísticas">📊</button>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-tab="region" class="tab active">Región</button>
+    <button role="tab" data-tab="comuna" class="tab">Comuna</button>
+    <button role="tab" data-tab="ordenar" class="tab">Ordenar</button>
+    <button role="tab" data-tab="infinito" class="tab">∞ Comunas</button>
+  </nav>
+
+  <main>
+    <section id="tab-region" class="panel active"></section>
+    <section id="tab-comuna" class="panel"></section>
+    <section id="tab-ordenar" class="panel"></section>
+    <section id="tab-infinito" class="panel panel-wide">
+      <div class="inf-top">
+        <div class="inf-controls">
+          <select id="inf-region" aria-label="Filtrar por región"></select>
+          <div class="inf-input-wrap">
+            <input id="inf-input" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Escribe una comuna…">
+          </div>
+        </div>
+        <div class="inf-stats">
+          <span class="inf-count"><b id="inf-count">0</b>/<span id="inf-total">0</span></span>
+          <span id="inf-timer" class="inf-timer">00:00</span>
+          <button id="inf-giveup" class="btn btn-ghost">Rendirse</button>
+          <button id="inf-reset" class="btn btn-ghost">Reiniciar</button>
+        </div>
+        <div class="progress"><div id="inf-bar"></div></div>
+        <div id="inf-msg" class="inf-msg" aria-live="polite"></div>
+      </div>
+      <div class="inf-body">
+        <div class="map-wrap" id="map-wrap">
+          <svg id="inf-map" class="inf-map" xmlns="http://www.w3.org/2000/svg"></svg>
+          <div class="map-zoom">
+            <button id="zoom-in" aria-label="Acercar">+</button>
+            <button id="zoom-out" aria-label="Alejar">−</button>
+            <button id="zoom-fit" aria-label="Ver todo">⤢</button>
+          </div>
+          <div id="map-tip" class="map-tip" hidden></div>
+        </div>
+        <aside class="inf-side">
+          <h3>Por región</h3>
+          <ul id="inf-regions" class="inf-regions"></ul>
+          <h3>Últimas</h3>
+          <ul id="inf-recent" class="inf-recent"></ul>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="dlg-help" class="dlg">
+    <form method="dialog"><button class="dlg-close" aria-label="Cerrar">×</button></form>
+    <h2>Cómo jugar</h2>
+    <p><b>Región</b> y <b>Comuna</b>: adivina la silueta del día en 6 intentos. Cada intento muestra la distancia, la dirección y qué tan cerca estás.</p>
+    <div class="help-row"><span>Valdivia</span><span>812 km</span><span>⬇️</span><span>81%</span></div>
+    <p>Después vienen rondas bonus: capital regional, comuna más poblada, región, ciudad principal y habitantes.</p>
+    <p><b>Ordenar</b>: ordena 6 ciudades de mayor a menor población. Tienes 3 intentos; las posiciones correctas quedan fijas.</p>
+    <p><b>∞ Comunas</b>: escribe todas las comunas de Chile que recuerdes y mira cómo se iluminan en el mapa. Puedes filtrar por región.</p>
+    <p class="muted">Un nuevo desafío cada día (hora de Chile). Población: Censo 2017 (INE).</p>
+  </dialog>
+
+  <dialog id="dlg-stats" class="dlg">
+    <form method="dialog"><button class="dlg-close" aria-label="Cerrar">×</button></form>
+    <h2>Estadísticas</h2>
+    <div id="stats-body"></div>
+    <p class="muted" id="next-in"></p>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
