@@ -872,6 +872,51 @@
     const lost = () => !won() && state.guesses.length >= maxTries;
     const done = () => won() || lost();
 
+    // Camino más corto de A a B usando solo comunas de `within` (o todas las permitidas).
+    function shortestPath(within) {
+      const prev = new Map([[A.c, null]]);
+      const queue = [A.c];
+      while (queue.length) {
+        const x = queue.shift();
+        if (x === B.c) break;
+        for (const v of comByCode.get(x).v) {
+          if (prev.has(v) || (within && !within.has(v)) || (allowed && !allowed.has(v))) continue;
+          prev.set(v, x);
+          queue.push(v);
+        }
+      }
+      if (!prev.has(B.c)) return null;
+      const path = [B.c];
+      while (path[0] !== A.c) path.unshift(prev.get(path[0]));
+      return path;
+    }
+
+    // Mejor ruta: de todos los caminos más cortos, el que reutiliza más comunas nombradas.
+    // También cuenta cuántos caminos más cortos distintos hay.
+    function bestRoute() {
+      const guessed = new Set(state.guesses);
+      const onShortest = (c) => fromA.has(c) && fromB.has(c) && fromA.get(c) + fromB.get(c) === D;
+      const layers = [];
+      for (const [c, d] of fromA) if (onShortest(c)) (layers[d] ||= []).push(c);
+      const best = new Map([[A.c, { hits: 0, prev: null, ways: 1 }]]);
+      for (let d = 1; d <= D; d++) {
+        for (const c of layers[d] || []) {
+          let top = null, ways = 0;
+          for (const p of comByCode.get(c).v) {
+            const bp = best.get(p);
+            if (!bp || fromA.get(p) !== d - 1) continue;
+            ways += bp.ways;
+            if (!top || bp.hits > top.hits) top = { hits: bp.hits, prev: p };
+          }
+          if (top) best.set(c, { hits: top.hits + (guessed.has(c) ? 1 : 0), prev: top.prev, ways });
+        }
+      }
+      const path = [B.c];
+      while (path[0] !== A.c) path.unshift(best.get(path[0]).prev);
+      return { path, ways: best.get(B.c).ways };
+    }
+    let showBest = true;
+
     function guess(code) {
       if (done()) return;
       if (code === A.c || code === B.c) return toast("Esa es una de las comunas del viaje");
@@ -899,7 +944,8 @@
       // Las comunas lejanas (rojas) no amplían el encuadre, para no perder de vista el viaje.
       const near = state.guesses.filter((c) => score(c) < 3);
       const shown = [A, B, ...near.map((c) => comByCode.get(c)), ...state.hints.map((c) => comByCode.get(c))];
-      if (done()) for (const c of cheapestPath(A.c, B.c, known(), allowed) || []) shown.push(comByCode.get(c));
+      const best = done() && showBest ? bestRoute().path : [];
+      for (const c of best) shown.push(comByCode.get(c));
       const bb = [Infinity, Infinity, -Infinity, -Infinity];
       for (const c of shown) {
         if (!c.bb || c.isla) continue;
@@ -910,16 +956,23 @@
       const svg = sv("svg", { viewBox: vb.join(" "), preserveAspectRatio: "xMidYMid meet" });
       const g = geoGroup();
       for (const r of REG) g.append(sv("path", { d: r.d, class: "land" }));
-      const solution = done() && !won() ? cheapestPath(A.c, B.c, known(), allowed) || [] : [];
-      for (const code of solution) if (!known().has(code)) g.append(sv("path", { d: comByCode.get(code).d, class: "sol" }));
+      for (const code of best) if (!known().has(code)) g.append(sv("path", { d: comByCode.get(code).d, class: "sol" }));
       for (const code of state.hints) if (!state.guesses.includes(code)) g.append(sv("path", { d: comByCode.get(code).d, class: "hint" }));
       for (const code of state.guesses) g.append(sv("path", { d: comByCode.get(code).d, class: `s${score(code)}` }));
       g.append(sv("path", { d: A.d, class: "start" }));
       g.append(sv("path", { d: B.d, class: "end" }));
-      svg.append(g);
-      for (const c of [A, B, ...state.guesses.map((x) => comByCode.get(x))]) {
+      // La mejor ruta se dibuja como una línea que une los centros de sus comunas.
+      if (best.length) {
+        svg.append(g);
+        svg.append(sv("polyline", { points: best.map((c) => xy(comByCode.get(c)).join(",")).join(" "), class: "best-line" }));
+      } else {
+        svg.append(g);
+      }
+      const labeled = new Set([A.c, B.c, ...state.guesses, ...best]);
+      for (const code of labeled) {
+        const c = comByCode.get(code);
         const [x, y] = xy(c);
-        const t = sv("text", { x, y, "data-fs": 26, class: "ruta-lbl" });
+        const t = sv("text", { x, y, "data-fs": 26, class: `ruta-lbl${known().has(code) ? "" : " sol-lbl"}` });
         t.textContent = c.n;
         svg.append(t);
       }
@@ -944,6 +997,10 @@
           `Nombra comunas vecinas que las conecten${route.region ? ` dentro de ${regByCode.get(route.region).short}` : ""}. Mínimo: ${minimum}.`)));
       const m = el("div", { class: "ruta-map" });
       m.append(zoomableMap(map(), (v) => { userView = v; }, userView));
+      if (done()) {
+        m.append(el("button", { class: "best-toggle", onclick: () => { showBest = !showBest; userView = null; render(); } },
+          showBest ? "Ocultar mejor ruta" : "Ver mejor ruta"));
+      }
       root.append(m);
 
       root.append(el("div", { class: "ruta-chips" }, state.guesses.map((code) =>
@@ -964,13 +1021,29 @@
         return;
       }
 
-      const path = cheapestPath(A.c, B.c, known(), allowed) || [];
+      const best = bestRoute();
+      const guessed = new Set(state.guesses);
+      const chain = (path, mark) => el("p", { class: "ruta-path" }, path.flatMap((c, i) => [
+        i ? el("span", { class: "arrow" }, " → ") : null,
+        el("span", { class: mark(c) }, comByCode.get(c).n),
+      ]));
+      const mine = won() ? shortestPath(known()) : null;
+      const foundBest = won() && mine.length - 2 === minimum; // tu camino es tan corto como el mejor
+      const perfect = foundBest && state.guesses.length === minimum; // y sin intentos de más
       const card = el("div", { class: "step-card" },
         el("h3", {}, won()
-          ? (state.guesses.length === minimum ? "¡Ruta perfecta!" : `¡Llegaste en ${state.guesses.length} intentos!`)
-          : "Se acabaron los intentos"),
-        el("div", { class: "muted" }, won() ? `El mínimo era ${minimum}.` : "Una ruta posible:"),
-        el("p", { class: "ruta-path" }, path.map((c) => comByCode.get(c).n).join(" → ")));
+          ? (perfect ? "¡Ruta perfecta!" : `¡Llegaste en ${state.guesses.length} intentos!`)
+          : "Se acabaron los intentos"));
+      if (won() && !foundBest) {
+        card.append(el("div", { class: "ruta-sub" }, `Tu ruta (${mine.length - 2} comunas)`),
+          chain(mine, (c) => (c === A.c ? "p-start" : c === B.c ? "p-end" : "p-mine")));
+      }
+      card.append(...[
+        el("div", { class: "ruta-sub" }, `${foundBest ? "Encontraste la mejor ruta" : "Mejor ruta"} (${minimum} comuna${minimum === 1 ? "" : "s"})`),
+        chain(best.path, (c) => (c === A.c ? "p-start" : c === B.c ? "p-end" : guessed.has(c) ? "p-mine" : "p-missed")),
+        best.ways > 1 ? el("div", { class: "muted small-note" }, `Hay ${best.ways} rutas igual de cortas; esta es la que más se parece a la tuya.`) : null,
+        !foundBest ? el("div", { class: "muted small-note" }, "En verde, las comunas que nombraste; en gris, las que faltaron.") : null,
+      ].filter(Boolean));
       const actions = el("div", { class: "actions" });
       if (!practice) actions.append(el("button", { class: "btn", onclick: () => share(shareText()) }, "Compartir"));
       actions.append(el("button", { class: "btn btn-red", onclick: () => startRuta(true, route.region || 0) },

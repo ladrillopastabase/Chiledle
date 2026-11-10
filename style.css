@@ -233,7 +233,21 @@ main { max-width: 1100px; margin: 0 auto; padding: 16px; }
 .chip.s2 { background: var(--r2); }
 .chip.s3 { background: var(--r3); }
 .ruta-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
-.ruta-path { font-weight: 600; margin: 8px 0 0; }
+.ruta-path { font-weight: 600; margin: 4px 0 6px; line-height: 1.9; }
+.ruta-path span:not(.arrow) { padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.ruta-path .arrow { color: var(--muted); }
+.ruta-path .p-start { background: var(--map-found); color: #fff; }
+.ruta-path .p-end { background: var(--red); color: #fff; }
+.ruta-path .p-mine { background: var(--r0); color: #fff; }
+.ruta-path .p-missed { background: var(--map-empty); color: var(--text); border: 1px dashed var(--muted); }
+.ruta-sub { font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 700; margin-top: 10px; }
+.ruta-map { position: relative; }
+.ruta-map .best-line { fill: none; stroke: var(--text); stroke-width: 2.5; stroke-dasharray: 6 4; stroke-linejoin: round; vector-effect: non-scaling-stroke; opacity: .75; pointer-events: none; }
+.ruta-map .sol-lbl { fill: var(--muted); font-style: italic; }
+.best-toggle {
+  position: absolute; left: 8px; bottom: 8px; z-index: 2;
+  border: 1px solid var(--border); background: var(--card); border-radius: 8px; padding: 6px 10px; font-weight: 600; font-size: .85rem;
+}
 
 /* ---------- Ordenar ---------- */
 .order-list { list-style: none; padding: 0; margin: 10px 0; display: grid; gap: 6px; }
