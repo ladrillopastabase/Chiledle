@@ -286,7 +286,12 @@ main { max-width: 1100px; margin: 0 auto; padding: 16px; }
 .inf-map .inset { fill: none; stroke: var(--map-region); stroke-dasharray: 4 3; stroke-width: 1; vector-effect: non-scaling-stroke; }
 .inf-map text { fill: var(--muted); font-size: .35px; }
 .inf-map .lbl { fill: var(--text); font-weight: 700; paint-order: stroke; stroke: var(--card); stroke-width: .06px; pointer-events: none; }
-.map-zoom { position: absolute; right: 8px; top: 8px; display: grid; gap: 4px; }
+.map-zoom { position: absolute; right: 8px; top: 8px; display: grid; gap: 4px; z-index: 2; }
+.zoom-box { position: relative; width: 100%; height: 100%; }
+.zoom-box > svg { width: 100%; height: 100%; display: block; }
+svg.zoomable { cursor: grab; touch-action: none; user-select: none; }
+svg.zoomable.grabbing { cursor: grabbing; }
+.minimap .map-zoom button, .ruta-map .map-zoom button { width: 30px; height: 30px; font-size: 1rem; opacity: .9; }
 .map-zoom button {
   width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--border);
   background: var(--card); font-size: 1.1rem; font-weight: 700;

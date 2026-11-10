@@ -137,6 +137,92 @@
     return [cx - w / 2, cy - h / 2, w, h];
   }
 
+  // ---------- Zoom y arrastre para mapas SVG ----------
+  // get/set leen y fijan el viewBox; fit vuelve a la vista inicial.
+  function panZoom(svg, { get, set, fit }) {
+    const pts = new Map();
+    let last = null;
+    const scaleOf = () => {
+      const r = svg.getBoundingClientRect();
+      const [, , w, h] = get();
+      return { r, s: Math.max(w / r.width, h / r.height) };
+    };
+    const zoomAt = (factor, cx, cy) => {
+      const { r, s } = scaleOf();
+      const [x, y, w, h] = get();
+      const nw = Math.min(Math.max(w * factor, 0.01), 80), nh = (h * nw) / w;
+      const ox = x + (w - r.width * s) / 2, oy = y + (h - r.height * s) / 2;
+      const px = ox + (cx - r.left) * s, py = oy + (cy - r.top) * s;
+      const k = nw / w;
+      set([px - (px - x) * k, py - (py - y) * k, nw, nh]);
+    };
+    svg.classList.add("zoomable");
+    svg.addEventListener("wheel", (e) => { e.preventDefault(); zoomAt(e.deltaY > 0 ? 1.15 : 1 / 1.15, e.clientX, e.clientY); }, { passive: false });
+    svg.addEventListener("dblclick", (e) => zoomAt(1 / 2, e.clientX, e.clientY));
+    svg.addEventListener("pointerdown", (e) => {
+      svg.setPointerCapture(e.pointerId);
+      pts.set(e.pointerId, [e.clientX, e.clientY]);
+      svg.classList.add("grabbing");
+      last = null;
+    });
+    svg.addEventListener("pointermove", (e) => {
+      if (!pts.has(e.pointerId)) return;
+      const prev = pts.get(e.pointerId);
+      pts.set(e.pointerId, [e.clientX, e.clientY]);
+      if (pts.size === 1) {
+        const { s } = scaleOf();
+        const [x, y, w, h] = get();
+        set([x - (e.clientX - prev[0]) * s, y - (e.clientY - prev[1]) * s, w, h]);
+      } else if (pts.size === 2) {
+        const [a, b] = [...pts.values()];
+        const d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+        if (last) zoomAt(last / d, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+        last = d;
+      }
+    });
+    const end = (e) => { pts.delete(e.pointerId); last = null; if (!pts.size) svg.classList.remove("grabbing"); };
+    svg.addEventListener("pointerup", end);
+    svg.addEventListener("pointercancel", end);
+    const center = () => { const r = svg.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; };
+    return {
+      zoomIn: () => zoomAt(1 / 1.5, ...center()),
+      zoomOut: () => zoomAt(1.5, ...center()),
+      fit,
+    };
+  }
+
+  function zoomButtons(ctrl) {
+    return el("div", { class: "map-zoom" },
+      el("button", { "aria-label": "Acercar", title: "Acercar", onclick: ctrl.zoomIn }, "+"),
+      el("button", { "aria-label": "Alejar", title: "Alejar", onclick: ctrl.zoomOut }, "−"),
+      el("button", { "aria-label": "Ver todo", title: "Ver todo", onclick: ctrl.fit }, "⤢"));
+  }
+
+  // Mapa pequeño con zoom: guarda su propia vista; onChange avisa cuando el usuario la mueve.
+  function zoomableMap(svg, onChange, startVB) {
+    const initial = svg.getAttribute("viewBox").split(" ").map(Number);
+    let vb;
+    // Los textos con data-fs mantienen su tamaño en pantalla: font-size = lado del viewBox / data-fs.
+    const apply = (v) => {
+      vb = v;
+      svg.setAttribute("viewBox", v.join(" "));
+      const fs = Math.max(v[2], v[3]);
+      for (const t of svg.querySelectorAll("text[data-fs]")) {
+        const size = fs / +t.dataset.fs;
+        t.setAttribute("font-size", size);
+        t.setAttribute("stroke-width", size / 5);
+      }
+    };
+    apply(startVB || initial);
+    const set = (v, user = true) => {
+      apply(v);
+      if (user && onChange) onChange(v);
+    };
+    const ctrl = panZoom(svg, { get: () => vb, set, fit: () => { set(initial, false); if (onChange) onChange(null); } });
+    const box = el("div", { class: "zoom-box" }, svg, zoomButtons(ctrl));
+    return box;
+  }
+
   // ---------- Autocompletar ----------
   function autocomplete(input, getItems, onPick) {
     const list = el("ul", { class: "ac-list", hidden: true });
@@ -367,7 +453,7 @@
           el("div", { class: "answer" }, cfg.itemLabel(target)),
           el("div", { class: "muted" }, cfg.itemSub(target)));
         const mm = el("div", { class: "minimap" });
-        mm.append(cfg.minimap(target, state.guesses));
+        mm.append(zoomableMap(cfg.minimap(target, state.guesses)));
         card.append(mm);
         card.append(nextBtn(1, "Preguntas bonus ⭐"));
         return;
@@ -763,6 +849,7 @@
     let state = practice ? fresh : store.get(key, fresh);
     if (state.start !== route.start || state.end !== route.end) state = fresh;
     const save = () => { if (!practice) store.set(key, state); };
+    let userView = null; // vista elegida con zoom/arrastre; null = encuadre automático
 
     const A = comByCode.get(state.start), B = comByCode.get(state.end);
     const fromA = bfs(A.c, allowed), fromB = bfs(B.c, allowed);
@@ -830,10 +917,9 @@
       g.append(sv("path", { d: A.d, class: "start" }));
       g.append(sv("path", { d: B.d, class: "end" }));
       svg.append(g);
-      const fs = Math.max(vb[2], vb[3]) / 26;
       for (const c of [A, B, ...state.guesses.map((x) => comByCode.get(x))]) {
         const [x, y] = xy(c);
-        const t = sv("text", { x, y, "font-size": fs, "stroke-width": fs / 5, class: "ruta-lbl" });
+        const t = sv("text", { x, y, "data-fs": 26, class: "ruta-lbl" });
         t.textContent = c.n;
         svg.append(t);
       }
@@ -857,7 +943,7 @@
         el("br"), el("small", { class: "muted" },
           `Nombra comunas vecinas que las conecten${route.region ? ` dentro de ${regByCode.get(route.region).short}` : ""}. Mínimo: ${minimum}.`)));
       const m = el("div", { class: "ruta-map" });
-      m.append(map());
+      m.append(zoomableMap(map(), (v) => { userView = v; }, userView));
       root.append(m);
 
       root.append(el("div", { class: "ruta-chips" }, state.guesses.map((code) =>
@@ -992,7 +1078,10 @@
       svg.append(g);
     }
 
-    setupPanZoom(svg);
+    const ctrl = panZoom(svg, { get: () => inf.vb, set: setVB, fit: fitScope });
+    $("#zoom-in").onclick = ctrl.zoomIn;
+    $("#zoom-out").onclick = ctrl.zoomOut;
+    $("#zoom-fit").onclick = ctrl.fit;
     svg.addEventListener("pointermove", (e) => {
       const tip = $("#map-tip");
       const code = e.target.dataset && e.target.dataset.c;
@@ -1022,55 +1111,6 @@
   function fitScope() {
     if (inf.scope === 0) fitTo(MAIN_BB);
     else fitTo(regByCode.get(inf.scope).bb);
-  }
-
-  function setupPanZoom(svg) {
-    const pts = new Map();
-    let last = null;
-    const toUnits = (dx, dy) => {
-      const r = svg.getBoundingClientRect();
-      const s = Math.max(inf.vb[2] / r.width, inf.vb[3] / r.height);
-      return [dx * s, dy * s];
-    };
-    const zoomAt = (factor, cx, cy) => {
-      const r = svg.getBoundingClientRect();
-      const [x, y, w, h] = inf.vb;
-      const nw = Math.min(Math.max(w * factor, 0.05), 80), nh = (h * nw) / w;
-      const s = Math.max(w / r.width, h / r.height);
-      const ox = x + (w - r.width * s) / 2, oy = y + (h - r.height * s) / 2;
-      const px = ox + (cx - r.left) * s, py = oy + (cy - r.top) * s;
-      const k = nw / w;
-      setVB([px - (px - x) * k, py - (py - y) * k, nw, nh]);
-    };
-    svg.addEventListener("wheel", (e) => { e.preventDefault(); zoomAt(e.deltaY > 0 ? 1.15 : 1 / 1.15, e.clientX, e.clientY); }, { passive: false });
-    svg.addEventListener("pointerdown", (e) => {
-      svg.setPointerCapture(e.pointerId);
-      pts.set(e.pointerId, [e.clientX, e.clientY]);
-      svg.classList.add("grabbing");
-      last = null;
-    });
-    svg.addEventListener("pointermove", (e) => {
-      if (!pts.has(e.pointerId)) return;
-      const prev = pts.get(e.pointerId);
-      pts.set(e.pointerId, [e.clientX, e.clientY]);
-      if (pts.size === 1) {
-        const [dx, dy] = toUnits(e.clientX - prev[0], e.clientY - prev[1]);
-        const [x, y, w, h] = inf.vb;
-        setVB([x - dx, y - dy, w, h]);
-      } else if (pts.size === 2) {
-        const [a, b] = [...pts.values()];
-        const d = Math.hypot(a[0] - b[0], a[1] - b[1]);
-        if (last) zoomAt(last / d, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
-        last = d;
-      }
-    });
-    const end = (e) => { pts.delete(e.pointerId); last = null; if (!pts.size) svg.classList.remove("grabbing"); };
-    svg.addEventListener("pointerup", end);
-    svg.addEventListener("pointercancel", end);
-    const center = () => { const r = svg.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; };
-    $("#zoom-in").onclick = () => zoomAt(1 / 1.5, ...center());
-    $("#zoom-out").onclick = () => zoomAt(1.5, ...center());
-    $("#zoom-fit").onclick = fitScope;
   }
 
   function paintMap(newCode) {
