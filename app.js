@@ -211,7 +211,7 @@
 
   function showStats() {
     const all = getStats();
-    const names = { region: "Región", comuna: "Comuna", ordenar: "Ordenar" };
+    const names = { region: "Región", comuna: "Comuna", ordenar: "Ordenar", ruta: "Ruta" };
     const body = $("#stats-body");
     body.replaceChildren();
     for (const [k, title] of Object.entries(names)) {
@@ -222,9 +222,10 @@
         el("div", {}, el("b", {}, s.played ? Math.round((100 * s.wins) / s.played) : 0), el("span", {}, "% Ganadas")),
         el("div", {}, el("b", {}, s.streak), el("span", {}, "Racha")),
         el("div", {}, el("b", {}, s.max), el("span", {}, "Mejor racha"))));
-      const rows = k === "ordenar" ? ["1", "2", "3", "X"] : ["1", "2", "3", "4", "5", "6", "X"];
+      const rows = k === "ordenar" ? ["1", "2", "3", "X"] : k === "ruta" ? ["0", "1", "2", "3", "4", "5", "X"] : ["1", "2", "3", "4", "5", "6", "X"];
       const max = Math.max(1, ...rows.map((r) => s.dist[r] || 0));
-      body.append(el("div", { class: "dist" }, rows.map((r) => el("div", {}, el("span", {}, r),
+      if (k === "ruta") body.append(el("p", { class: "muted small-note" }, "Intentos sobre el mínimo:"));
+      body.append(el("div", { class: "dist" }, rows.map((r) => el("div", {}, el("span", {}, k === "ruta" && r !== "X" ? `+${r}` : r),
         el("i", { style: `width:${Math.max(6, (100 * (s.dist[r] || 0)) / max)}%` }, s.dist[r] || 0)))));
     }
     $("#next-in").textContent = nextCountdown();
@@ -686,6 +687,226 @@
     render();
   }
 
+  // ---------- Ruta (tipo Travle): unir dos comunas por comunas vecinas ----------
+  const RUTA_EXTRA = 5; // intentos permitidos además del mínimo
+  const RUTA_COLORS = ["🟩", "🟨", "🟧", "🟥"];
+  const xy = (c) => [(c.lon + 71) * Math.cos(rad(c.lat)), -c.lat]; // igual que tools/build_data.py
+
+  // Distancias en saltos desde src, solo por comunas permitidas.
+  function bfs(src, allowed) {
+    const dist = new Map([[src, 0]]);
+    const queue = [src];
+    while (queue.length) {
+      const x = queue.shift();
+      for (const v of comByCode.get(x).v) {
+        if (dist.has(v) || (allowed && !allowed.has(v))) continue;
+        dist.set(v, dist.get(x) + 1);
+        queue.push(v);
+      }
+    }
+    return dist;
+  }
+
+  // Camino más corto que reutiliza lo ya conocido: pasar por comunas conocidas no cuesta.
+  function cheapestPath(start, end, known, allowed) {
+    const cost = new Map([[start, 0]]);
+    const prev = new Map();
+    const deque = [start];
+    while (deque.length) {
+      const x = deque.shift();
+      if (x === end) break;
+      for (const v of comByCode.get(x).v) {
+        if (allowed && !allowed.has(v)) continue;
+        const w = known.has(v) ? 0 : 1;
+        const nc = cost.get(x) + w;
+        if (!cost.has(v) || nc < cost.get(v)) {
+          cost.set(v, nc);
+          prev.set(v, x);
+          if (w === 0) deque.unshift(v); else deque.push(v);
+        }
+      }
+    }
+    if (!cost.has(end)) return null;
+    const path = [end];
+    while (path[0] !== start) path.unshift(prev.get(path[0]));
+    return path;
+  }
+
+  function pickRoute(rand, region) {
+    const pool = COM.filter((c) => c.v.length && (!region || c.r === region));
+    const allowed = region ? new Set(pool.map((c) => c.c)) : null;
+    const pairs = [];
+    let best = [];
+    for (const s of shuffle(pool, rand).slice(0, 60)) {
+      for (const [e, d] of bfs(s.c, allowed)) {
+        if (d >= 3 && d <= 7) pairs.push([s.c, e, d]);
+        if (!best.length || d > best[0][2]) best = [[s.c, e, d]];
+      }
+    }
+    const list = pairs.length ? pairs : best;
+    const [start, end] = list[Math.floor(rand() * list.length)];
+    return { start, end, region };
+  }
+
+  const ruta = { practice: false, region: 0 };
+
+  function startRuta(practice, region = ruta.region) {
+    ruta.practice = practice;
+    ruta.region = region;
+    const root = $("#tab-ruta");
+    const key = `chiledle:ruta:${TODAY}`;
+    const route = practice
+      ? pickRoute(rng((Math.random() * 2 ** 32) >>> 0), region || null)
+      : pickRoute(rng(hash(`ruta:${DAY}`)), null);
+    const allowed = route.region ? new Set(COM.filter((c) => c.r === route.region).map((c) => c.c)) : null;
+    const fresh = { start: route.start, end: route.end, guesses: [], hints: [] };
+    let state = practice ? fresh : store.get(key, fresh);
+    if (state.start !== route.start || state.end !== route.end) state = fresh;
+    const save = () => { if (!practice) store.set(key, state); };
+
+    const A = comByCode.get(state.start), B = comByCode.get(state.end);
+    const fromA = bfs(A.c, allowed), fromB = bfs(B.c, allowed);
+    const D = fromA.get(B.c);
+    const minimum = D - 1;
+    const maxTries = minimum + RUTA_EXTRA;
+
+    // 0 = en un camino más corto, 1 muy cerca, 2 cerca, 3 lejos.
+    function score(code) {
+      const a = fromA.get(code), b = fromB.get(code);
+      if (a == null || b == null) return 3;
+      const extra = a + b - D;
+      return extra === 0 ? 0 : extra <= 2 ? 1 : extra <= 4 ? 2 : 3;
+    }
+    const known = () => new Set([A.c, B.c, ...state.guesses]);
+    const won = () => {
+      const k = known();
+      return bfs(A.c, k).has(B.c);
+    };
+    const lost = () => !won() && state.guesses.length >= maxTries;
+    const done = () => won() || lost();
+
+    function guess(code) {
+      if (done()) return;
+      if (code === A.c || code === B.c) return toast("Esa es una de las comunas del viaje");
+      if (state.guesses.includes(code)) return toast("Ya la nombraste");
+      state.guesses.push(code);
+      save();
+      if (done()) {
+        if (!practice) recordResult("ruta", won(), state.guesses.length - minimum);
+        toast(won() ? "¡Llegaste! 🇨🇱" : "Se acabaron los intentos");
+      }
+      render();
+    }
+
+    function hint() {
+      const path = cheapestPath(A.c, B.c, known(), allowed);
+      const next = path && path.find((c) => !known().has(c) && !state.hints.includes(c));
+      if (!next) return toast("No quedan pistas");
+      state.hints.push(next);
+      save();
+      render();
+      toast("La silueta punteada es parte de la ruta");
+    }
+
+    function map() {
+      // Las comunas lejanas (rojas) no amplían el encuadre, para no perder de vista el viaje.
+      const near = state.guesses.filter((c) => score(c) < 3);
+      const shown = [A, B, ...near.map((c) => comByCode.get(c)), ...state.hints.map((c) => comByCode.get(c))];
+      if (done()) for (const c of cheapestPath(A.c, B.c, known(), allowed) || []) shown.push(comByCode.get(c));
+      const bb = [Infinity, Infinity, -Infinity, -Infinity];
+      for (const c of shown) {
+        if (!c.bb || c.isla) continue;
+        bb[0] = Math.min(bb[0], c.bb[0]); bb[1] = Math.min(bb[1], c.bb[1]);
+        bb[2] = Math.max(bb[2], c.bb[2]); bb[3] = Math.max(bb[3], c.bb[3]);
+      }
+      const vb = viewBoxOf(bb, 0.15, 0.25);
+      const svg = sv("svg", { viewBox: vb.join(" "), preserveAspectRatio: "xMidYMid meet" });
+      const g = geoGroup();
+      for (const r of REG) g.append(sv("path", { d: r.d, class: "land" }));
+      const solution = done() && !won() ? cheapestPath(A.c, B.c, known(), allowed) || [] : [];
+      for (const code of solution) if (!known().has(code)) g.append(sv("path", { d: comByCode.get(code).d, class: "sol" }));
+      for (const code of state.hints) if (!state.guesses.includes(code)) g.append(sv("path", { d: comByCode.get(code).d, class: "hint" }));
+      for (const code of state.guesses) g.append(sv("path", { d: comByCode.get(code).d, class: `s${score(code)}` }));
+      g.append(sv("path", { d: A.d, class: "start" }));
+      g.append(sv("path", { d: B.d, class: "end" }));
+      svg.append(g);
+      const fs = Math.max(vb[2], vb[3]) / 26;
+      for (const c of [A, B, ...state.guesses.map((x) => comByCode.get(x))]) {
+        const [x, y] = xy(c);
+        const t = sv("text", { x, y, "font-size": fs, "stroke-width": fs / 5, class: "ruta-lbl" });
+        t.textContent = c.n;
+        svg.append(t);
+      }
+      return svg;
+    }
+
+    function render() {
+      root.replaceChildren();
+      const sel = el("select", { "aria-label": "Región para practicar", onchange: (e) => startRuta(true, +e.target.value) },
+        el("option", { value: "0" }, "Práctica: todo Chile"),
+        REG.map((r) => el("option", { value: String(r.c), selected: practice && route.region === r.c }, `Práctica: ${r.short}`)));
+      if (!practice) sel.prepend(el("option", { value: "", selected: true, disabled: true }, "Practicar por región…"));
+      root.append(el("div", { class: "game-head" },
+        el("h2", {}, "Ruta"),
+        el("span", { class: "muted" }, practice ? `Práctica · ${route.region ? regByCode.get(route.region).short : "Chile"}` : `#${NUM}`)));
+      root.append(el("div", { class: "ruta-bar" }, sel,
+        practice ? el("button", { class: "btn btn-ghost", onclick: () => startRuta(true, route.region || 0) }, "Nueva ruta") : null,
+        practice ? el("button", { class: "btn btn-ghost", onclick: () => startRuta(false) }, "Diario") : null));
+      root.append(el("p", { class: "ruta-goal" },
+        "Viaja de ", el("b", { class: "c-start" }, A.n), " a ", el("b", { class: "c-end" }, B.n),
+        el("br"), el("small", { class: "muted" },
+          `Nombra comunas vecinas que las conecten${route.region ? ` dentro de ${regByCode.get(route.region).short}` : ""}. Mínimo: ${minimum}.`)));
+      const m = el("div", { class: "ruta-map" });
+      m.append(map());
+      root.append(m);
+
+      root.append(el("div", { class: "ruta-chips" }, state.guesses.map((code) =>
+        el("span", { class: `chip s${score(code)}` }, comByCode.get(code).n))));
+
+      if (!done()) {
+        const input = el("input", { type: "text", placeholder: "Nombra una comuna…", autocomplete: "off", spellcheck: "false" });
+        const wrap = el("div", { class: "ac" }, input);
+        const ac = autocomplete(input,
+          () => COM.filter((c) => (!allowed || allowed.has(c.c)) && c.c !== A.c && c.c !== B.c && !state.guesses.includes(c.c))
+            .map((c) => ({ label: c.n, sub: regByCode.get(c.r).short, keys: [norm(c.n)], value: c.c })),
+          (it) => guess(it.value));
+        root.append(el("div", { class: "row" }, wrap, el("button", { class: "btn", onclick: () => ac.submit() }, "Ir")));
+        root.append(el("div", { class: "ruta-foot" },
+          el("span", { class: "muted" }, `Intentos: ${state.guesses.length}/${maxTries}`),
+          el("button", { class: "btn btn-ghost", onclick: hint }, `💡 Pista${state.hints.length ? ` (${state.hints.length})` : ""}`)));
+        input.focus({ preventScroll: true });
+        return;
+      }
+
+      const path = cheapestPath(A.c, B.c, known(), allowed) || [];
+      const card = el("div", { class: "step-card" },
+        el("h3", {}, won()
+          ? (state.guesses.length === minimum ? "¡Ruta perfecta!" : `¡Llegaste en ${state.guesses.length} intentos!`)
+          : "Se acabaron los intentos"),
+        el("div", { class: "muted" }, won() ? `El mínimo era ${minimum}.` : "Una ruta posible:"),
+        el("p", { class: "ruta-path" }, path.map((c) => comByCode.get(c).n).join(" → ")));
+      const actions = el("div", { class: "actions" });
+      if (!practice) actions.append(el("button", { class: "btn", onclick: () => share(shareText()) }, "Compartir"));
+      actions.append(el("button", { class: "btn btn-red", onclick: () => startRuta(true, route.region || 0) },
+        practice ? "Otra ruta" : "Jugar práctica"));
+      card.append(actions);
+      if (!practice) card.append(el("p", { class: "muted small-note" }, nextCountdown()));
+      root.append(card);
+    }
+
+    function shareText() {
+      return [
+        `#Chiledle Ruta #${NUM} ${won() ? state.guesses.length : "X"}/${minimum}`,
+        `${A.n} ➡️ ${B.n}`,
+        state.guesses.map((c) => RUTA_COLORS[score(c)]).join(""),
+        state.hints.length ? `💡×${state.hints.length}` : null,
+        siteUrl(),
+      ].filter(Boolean).join("\n");
+    }
+
+    render();
+  }
+
   // ---------- Modo infinito: nombrar todas las comunas ----------
   const INF_KEY = "chiledle:infinito";
   const inf = {
@@ -1042,7 +1263,8 @@
   startRegion(false);
   startComuna(false);
   startOrdenar(false);
+  startRuta(false);
   const initial = location.hash.slice(1);
-  if (["region", "comuna", "ordenar", "infinito"].includes(initial)) selectTab(initial);
+  if (["region", "comuna", "ordenar", "ruta", "infinito"].includes(initial)) selectTab(initial);
   if (!store.get("chiledle:visto", false)) { store.set("chiledle:visto", true); $("#dlg-help").showModal(); }
 })();

@@ -7,6 +7,7 @@ Juego diario de geografía chilena inspirado en [Worldle](https://worldle.teuteu
 - **Región**: adivina la región del día por su silueta en 6 intentos. Cada intento muestra distancia, dirección y cercanía. Bonus: capital regional, comuna más poblada y número de comunas.
 - **Comuna**: adivina la comuna del día. Bonus: región, ciudad principal (cabecera comunal) y habitantes.
 - **Ordenar**: ordena 6 ciudades de mayor a menor población en 3 intentos.
+- **Ruta** (estilo [Travle](https://travle.earth/)): viaja de una comuna a otra nombrando las comunas vecinas que hay entre medio. Cada comuna se pinta 🟩 si está en un camino más corto, 🟨 muy cerca, 🟧 cerca o 🟥 lejos. Hay pistas y un modo práctica por región (o todo Chile).
 - **∞ Comunas**: nombra las 346 comunas de Chile y mira cómo se iluminan en el mapa. Puedes filtrar por región, rendirte para ver las que faltan y retomar tu progreso más tarde.
 
 Tiene modo claro y oscuro (botón 🌙/☀️). El desafío cambia cada día a medianoche (hora de Chile). Todos los jugadores ven el mismo. Después de terminar puedes jugar rondas de práctica.

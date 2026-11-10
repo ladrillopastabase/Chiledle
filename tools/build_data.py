@@ -18,6 +18,7 @@ import warnings
 
 import rdata
 from shapely.geometry import shape, MultiPolygon, Polygon
+from shapely.strtree import STRtree
 
 warnings.filterwarnings("ignore")
 
@@ -155,6 +156,21 @@ def label_point(g):
     return c if main_poly.contains(c) else main_poly.representative_point()
 
 
+def vecinos(codes, geoms, min_borde=0.003):
+    """Pares de comunas con frontera terrestre común (más de ~300 m, en grados)."""
+    tree = STRtree(geoms)
+    bordes = [g.boundary for g in geoms]
+    adj = {c: [] for c in codes}
+    for i, g in enumerate(geoms):
+        for j in tree.query(g):
+            if j <= i:
+                continue
+            if bordes[i].intersection(bordes[j]).length > min_borde:
+                adj[codes[i]].append(codes[j])
+                adj[codes[j]].append(codes[i])
+    return adj
+
+
 def main():
     hd = json.load(open(f"{SRC}/comunas_hd.json", encoding="utf-8"))
     hd_reg = json.load(open(f"{SRC}/regiones_hd.json", encoding="utf-8"))
@@ -165,9 +181,11 @@ def main():
     info = {f["properties"]["cod_comuna"]: f["properties"] for f in old["features"]}
 
     comunas = []
+    shapes = {}
     for f in hd["features"]:
         code = int(f["properties"]["COMUNA"])
         g = shape(f["geometry"])
+        shapes[code] = g
         p = info[code]
         nombre = p["Comuna"].strip()
         nombre = NOMBRES.get(nombre, nombre)
@@ -187,11 +205,15 @@ def main():
             "d": to_path(pg),
         })
 
+    adj = vecinos(list(shapes), list(shapes.values()))
+    for c in comunas:
+        c["v"] = sorted(adj[c["c"]])
+
     # Antártica Chilena: sin polígono en la fuente.
     comunas.append({
         "c": 12202, "n": "Antártica", "r": 12, "pv": "Antártica Chilena",
         "pop": pop[12202], "cab": CABECERAS["Antártica"], "lat": -62.19, "lon": -58.98,
-        "isla": "antartica", "bb": None, "d": "",
+        "isla": "antartica", "bb": None, "d": "", "v": [],
     })
     assert len(comunas) == 346, len(comunas)
 
