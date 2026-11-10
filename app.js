@@ -965,6 +965,8 @@
       for (const code of state.guesses) g.append(sv("path", { d: comByCode.get(code).d, class: `s${score(code)}` }));
       g.append(sv("path", { d: A.d, class: "start" }));
       g.append(sv("path", { d: B.d, class: "end" }));
+      // Con todas las comunas a la vista, los límites regionales van destacados encima.
+      if (done()) for (const r of REG) g.append(sv("path", { d: r.d, class: "reg-line" }));
       // La mejor ruta se dibuja como una línea que une los centros de sus comunas.
       if (best.length) {
         svg.append(g);
