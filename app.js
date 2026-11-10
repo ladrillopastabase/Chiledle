@@ -211,6 +211,8 @@
         const size = fs / +t.dataset.fs;
         t.setAttribute("font-size", size);
         t.setAttribute("stroke-width", size / 5);
+        // data-min: tamaño de la comuna; su nombre aparece solo cuando se ve lo bastante grande.
+        if (t.dataset.min) t.style.display = +t.dataset.min * 7 >= fs ? "" : "none";
       }
     };
     apply(startVB || initial);
@@ -956,6 +958,8 @@
       const svg = sv("svg", { viewBox: vb.join(" "), preserveAspectRatio: "xMidYMid meet" });
       const g = geoGroup();
       for (const r of REG) g.append(sv("path", { d: r.d, class: "land" }));
+      // Al terminar se muestran todas las comunas con sus límites.
+      if (done()) for (const c of COM) if (c.d && !c.isla) g.append(sv("path", { d: c.d, class: "all" }));
       for (const code of best) if (!known().has(code)) g.append(sv("path", { d: comByCode.get(code).d, class: "sol" }));
       for (const code of state.hints) if (!state.guesses.includes(code)) g.append(sv("path", { d: comByCode.get(code).d, class: "hint" }));
       for (const code of state.guesses) g.append(sv("path", { d: comByCode.get(code).d, class: `s${score(code)}` }));
@@ -969,6 +973,15 @@
         svg.append(g);
       }
       const labeled = new Set([A.c, B.c, ...state.guesses, ...best]);
+      if (done()) {
+        for (const c of COM) {
+          if (!c.d || c.isla || labeled.has(c.c)) continue;
+          const [x, y] = xy(c);
+          const t = sv("text", { x, y, "data-fs": 34, "data-min": Math.max(c.bb[2] - c.bb[0], c.bb[3] - c.bb[1]), class: "all-lbl" });
+          t.textContent = c.n;
+          svg.append(t);
+        }
+      }
       for (const code of labeled) {
         const c = comByCode.get(code);
         const [x, y] = xy(c);

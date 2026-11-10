@@ -244,6 +244,8 @@ main { max-width: 1100px; margin: 0 auto; padding: 16px; }
 .ruta-map { position: relative; }
 .ruta-map .best-line { fill: none; stroke: var(--text); stroke-width: 2.5; stroke-dasharray: 6 4; stroke-linejoin: round; vector-effect: non-scaling-stroke; opacity: .75; pointer-events: none; }
 .ruta-map .sol-lbl { fill: var(--muted); font-style: italic; }
+.ruta-map path.all { fill: none; stroke: var(--map-region); stroke-width: .6; }
+.ruta-map .all-lbl { fill: var(--muted); font-weight: 600; text-anchor: middle; dominant-baseline: middle; paint-order: stroke; stroke: var(--map-empty); pointer-events: none; }
 .best-toggle {
   position: absolute; left: 8px; bottom: 8px; z-index: 2;
   border: 1px solid var(--border); background: var(--card); border-radius: 8px; padding: 6px 10px; font-weight: 600; font-size: .85rem;
